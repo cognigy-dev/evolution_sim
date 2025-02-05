@@ -66,21 +66,37 @@ class Animal:
     def generate_random_genes(self):
         """Generate random genes for all possible vision configurations"""
         genes = {}
-        # 5 possible distances (0-4) for each of the 4 types (plant, herbivore, omnivore, carnivore)
-        # 0 means not visible
-        for p in range(5):  # plant distances
-            for h in range(5):  # herbivore distances
-                for o in range(5):  # omnivore distances
-                    for c in range(5):  # carnivore distances
+        vision_range = VISION_RADIUS[self.animal_type]
+        
+        # Generate genes based on type-specific vision radius
+        for p in range(vision_range + 1):  # plant distances
+            for h in range(vision_range + 1):  # herbivore distances
+                for o in range(vision_range + 1):  # omnivore distances
+                    for c in range(vision_range + 1):  # carnivore distances
                         key = (p, h, o, c)
-                        # Only include STAY if there's an adjacent animal of same type (distance 1)
-                        possible_actions = list(Action)
-                        if self.animal_type == 'herbivore' and h != 1:
-                            possible_actions.remove(Action.STAY)
-                        elif self.animal_type == 'omnivore' and o != 1:
-                            possible_actions.remove(Action.STAY)
-                        elif self.animal_type == 'carnivore' and c != 1:
-                            possible_actions.remove(Action.STAY)
+                        # Create list of possible actions based on what's visible
+                        possible_actions = []
+                        
+                        # Add movement actions only if target is visible
+                        if p > 0:  # Plant is visible
+                            possible_actions.append(Action.MOVE_TO_PLANT)
+                        if h > 0:  # Herbivore is visible
+                            possible_actions.append(Action.MOVE_TO_HERBIVORE)
+                            possible_actions.append(Action.FLEE_FROM_HERBIVORE)
+                        if o > 0:  # Omnivore is visible
+                            possible_actions.append(Action.MOVE_TO_OMNIVORE)
+                            possible_actions.append(Action.FLEE_FROM_OMNIVORE)
+                        if c > 0:  # Carnivore is visible
+                            possible_actions.append(Action.MOVE_TO_CARNIVORE)
+                            possible_actions.append(Action.FLEE_FROM_CARNIVORE)
+                        
+                        possible_actions.append(Action.RANDOM_MOVE)
+                        
+                        if (self.animal_type == 'herbivore' and h == 1) or \
+                           (self.animal_type == 'omnivore' and o == 1) or \
+                           (self.animal_type == 'carnivore' and c == 1):
+                            possible_actions.append(Action.STAY)
+                        
                         genes[key] = random.choice(possible_actions)
         return genes
     
@@ -207,8 +223,9 @@ class Grid:
     def calculate_distance(self, x1, y1, x2, y2):
         return round(math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2))
 
-    def get_vision(self, x, y, vision_radius=VISION_RADIUS):
+    def get_vision(self, x, y, animal_type):
         """Return closest distances to each type within vision radius"""
+        vision_radius = VISION_RADIUS[animal_type]
         vision = {'plant': 0, 'herbivore': 0, 'omnivore': 0, 'carnivore': 0}
         
         # Check all cells within vision radius
@@ -221,23 +238,22 @@ class Grid:
                 distance = self.calculate_distance(x, y, new_x, new_y)
                 if distance > vision_radius:
                     continue
-
+                
                 cell = self.grid[new_y][new_x]
                 if cell is None:
                     continue
-
-                # Fix: Properly identify cell type
+                
                 cell_type = None
                 if cell == PLANT_TYPE:
                     cell_type = PLANT_TYPE
                 elif isinstance(cell, Animal):
                     cell_type = cell.animal_type
-
+                
                 if cell_type and cell_type in vision:
                     current_dist = vision[cell_type]
                     if current_dist == 0 or distance < current_dist:
                         vision[cell_type] = distance
-
+        
         return vision
 
     def move_towards(self, x, y, target_x, target_y):
@@ -429,7 +445,7 @@ class Grid:
                 animal.reproduction_cooldown -= 1
                 continue  # Skip reproduction if on cooldown
             
-            vision = self.get_vision(x, y)
+            vision = self.get_vision(x, y, animal.animal_type)
             
             # Check for reproduction (when same type is at distance 1)
             if ((animal.animal_type == 'herbivore' and vision['herbivore'] == 1) or
@@ -470,16 +486,19 @@ class Grid:
                     animal.offspring_count += 1
                     other_parent.offspring_count += 1
         
-        # Then handle eating
+        # Then handle eating for omnivores
         for x, y in list(self.omnivores):
             if not self.grid[y][x]:  # Skip if dead
                 continue
             animal = self.grid[y][x]
-            vision = self.get_vision(x, y)
+            vision = self.get_vision(x, y, animal.animal_type)
+            
+            # Only hunt if hungry enough (at least half of hunger death limit)
+            is_hungry_enough = animal.hunger >= HUNGER_DEATH[animal.animal_type] / 2
             
             # Track if omnivore ate something this turn
             ate_something = False
-            if vision['herbivore'] == 1:  # Changed to only check for herbivores
+            if vision['herbivore'] == 1 and is_hungry_enough:  # Changed to only check for herbivores
                 for dx, dy in [(0, 1), (1, 0), (0, -1), (-1, 0)]:
                     new_x, new_y = x + dx, y + dy
                     if self.is_valid_position(new_x, new_y):
@@ -488,7 +507,7 @@ class Grid:
                             self.herbivores.remove((new_x, new_y))
                             self.grid[new_y][new_x] = None
                             animal.feed()  # Reset hunger when eating
-                            print(f"Omnivore at ({x}, {y}) ate a herbivore at ({new_x}, {new_y})")
+                            print(f"Hungry omnivore at ({x}, {y}) ate a herbivore at ({new_x}, {new_y})")
                             ate_something = True
                             break
 
@@ -497,11 +516,14 @@ class Grid:
             if not self.grid[y][x]:  # Skip if dead
                 continue
             animal = self.grid[y][x]
-            vision = self.get_vision(x, y)
+            vision = self.get_vision(x, y, animal.animal_type)
+            
+            # Only hunt if hungry enough (at least half of hunger death limit)
+            is_hungry_enough = animal.hunger >= HUNGER_DEATH[animal.animal_type] / 2
             
             # Track if carnivore ate something this turn
             ate_something = False
-            if vision['herbivore'] == 1 or vision['omnivore'] == 1:  # Added check for omnivores
+            if (vision['herbivore'] == 1 or vision['omnivore'] == 1) and is_hungry_enough:
                 for dx, dy in [(0, 1), (1, 0), (0, -1), (-1, 0)]:
                     new_x, new_y = x + dx, y + dy
                     if self.is_valid_position(new_x, new_y):
@@ -511,14 +533,14 @@ class Grid:
                                 self.herbivores.remove((new_x, new_y))
                                 self.grid[new_y][new_x] = None
                                 animal.feed()  # Reset hunger when eating
-                                print(f"Carnivore at ({x}, {y}) ate a herbivore at ({new_x}, {new_y})")
+                                print(f"Hungry carnivore at ({x}, {y}) ate a herbivore at ({new_x}, {new_y})")
                                 ate_something = True
                                 break
-                            elif target.animal_type == 'omnivore':  # Added ability to eat omnivores
+                            elif target.animal_type == 'omnivore':
                                 self.omnivores.remove((new_x, new_y))
                                 self.grid[new_y][new_x] = None
                                 animal.feed()  # Reset hunger when eating
-                                print(f"Carnivore at ({x}, {y}) ate an omnivore at ({new_x}, {new_y})")
+                                print(f"Hungry carnivore at ({x}, {y}) ate an omnivore at ({new_x}, {new_y})")
                                 ate_something = True
                                 break
         
@@ -529,7 +551,7 @@ class Grid:
                 continue
                 
             animal = self.grid[y][x]
-            vision = self.get_vision(x, y)
+            vision = self.get_vision(x, y, animal.animal_type)
             vision_key = animal.get_vision_key(vision)
             action = animal.genes[vision_key]
             
@@ -715,31 +737,32 @@ def run_simulation(initial_genes=None, visualize=False, generation=0, simulation
                         all_animals.append(grid.grid[y][x])
                     break
     
-    # Track maximum survival time for each animal
-    animal_max_survival = {}
-    
-    # Run simulation steps
+    # Run simulation for specified steps or until all animals die
     for step in range(SIMULATION_STEPS):
         grid.update_plants()
         grid.update_animals()
         
-        # Update survival time for all animals (including those that died)
-        for animal in all_animals:
-            animal.survival_time += 1
-            # Keep track of maximum survival time for each animal
-            animal_max_survival[animal] = max(
-                animal_max_survival.get(animal, 0),
-                animal.survival_time
-            )
+        # Check if all animals are dead
+        all_animals_dead = len(grid.herbivores) == 0 and \
+                          len(grid.carnivores) == 0 and \
+                          len(grid.omnivores) == 0
         
-        # Handle visualization
+        if all_animals_dead:
+            print(f"All animals died in simulation {simulation} at step {step}")
+            break
+        
+        # Update survival time for living animals
+        for animal in all_animals:
+            if animal.age is not None:  # Check if animal is still alive
+                animal.survival_time += 1
+        
+        # Visualize if requested
         if visualize:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     pygame.quit()
                     sys.exit()
             
-            # Clear and redraw everything
             screen.fill(WHITE)
             draw_grid()
             draw_plants(grid)
@@ -748,8 +771,8 @@ def run_simulation(initial_genes=None, visualize=False, generation=0, simulation
             pygame.display.flip()
             pygame.time.wait(50)
     
-    if visualize:
-        # Show completion message
+    if visualize and not all_animals_dead:
+        # Only show completion message if simulation ran full course
         screen.fill(WHITE)
         end_text = f"Generation {generation + 1}, Simulation {simulation + 1} Complete"
         text_surface = FONT.render(end_text, True, BLACK)
@@ -757,15 +780,11 @@ def run_simulation(initial_genes=None, visualize=False, generation=0, simulation
         screen.blit(text_surface, text_rect)
         pygame.display.flip()
         pygame.time.wait(1000)
-        
-        # Clear screen before next simulation
-        screen.fill(WHITE)
-        pygame.display.flip()
     
-    # Calculate results using maximum survival times
+    # Calculate results
     results = []
     for animal in all_animals:
-        results.append((animal, animal_max_survival[animal]))
+        results.append((animal, animal.survival_time))
     
     return results
 
@@ -846,6 +865,12 @@ if __name__ == "__main__":
         
         # Collect results for all types
         type_results_dict = {}
+        next_generation_genes = {
+            'herbivore': [],
+            'carnivore': [],
+            'omnivore': []
+        }
+        
         for animal_type in ANIMAL_TYPES:
             type_results = [(animal, survival_time) for animal, survival_time in results 
                           if animal.animal_type == animal_type]
@@ -853,15 +878,50 @@ if __name__ == "__main__":
             type_results_dict[animal_type] = type_results
             
             if type_results:
-                # Keep genes from animals that lived longest
-                new_best_genes = [animal.genes for animal, survival_time in type_results[:TOP_PERFORMERS_TO_KEEP]]
+                # Get the best performers from this simulation
+                best_performers = type_results[:TOP_PERFORMERS_TO_KEEP]
                 
-                # Combine with existing best genes
-                if best_genes[animal_type]:
-                    combined_genes = best_genes[animal_type] + new_best_genes
-                    best_genes[animal_type] = combined_genes[:TOP_PERFORMERS_TO_KEEP]
-                else:
-                    best_genes[animal_type] = new_best_genes
+                # For each new gene set we need
+                for _ in range(TOP_PERFORMERS_TO_KEEP):
+                    # Take a random one of the best performers' genes
+                    base_genes = random.choice(best_performers)[0].genes.copy()
+                    
+                    # 25% chance for mutation
+                    if random.random() < 0.25:
+                        # Mutate 10% of the genes
+                        num_mutations = max(1, int(len(base_genes) * 0.1))
+                        mutation_keys = random.sample(list(base_genes.keys()), num_mutations)
+                        
+                        for key in mutation_keys:
+                            p, h, o, c = key
+                            possible_actions = []
+                            
+                            # Build list of possible actions based on what's visible
+                            if p > 0:
+                                possible_actions.append(Action.MOVE_TO_PLANT)
+                            if h > 0:
+                                possible_actions.append(Action.MOVE_TO_HERBIVORE)
+                                possible_actions.append(Action.FLEE_FROM_HERBIVORE)
+                            if o > 0:
+                                possible_actions.append(Action.MOVE_TO_OMNIVORE)
+                                possible_actions.append(Action.FLEE_FROM_OMNIVORE)
+                            if c > 0:
+                                possible_actions.append(Action.MOVE_TO_CARNIVORE)
+                                possible_actions.append(Action.FLEE_FROM_CARNIVORE)
+                            
+                            possible_actions.append(Action.RANDOM_MOVE)
+                            
+                            if ((animal_type == 'herbivore' and h == 1) or
+                                (animal_type == 'omnivore' and o == 1) or
+                                (animal_type == 'carnivore' and c == 1)):
+                                possible_actions.append(Action.STAY)
+                            
+                            base_genes[key] = random.choice(possible_actions)
+                    
+                    next_generation_genes[animal_type].append(base_genes)
+                
+                # Update best genes for next simulation
+                best_genes[animal_type] = next_generation_genes[animal_type]
                 
                 # Print stats
                 avg_survival = sum(survival for _, survival in type_results) / len(type_results)
@@ -875,7 +935,7 @@ if __name__ == "__main__":
         save_simulation_results(simulation_count, type_results_dict, best_genes)
         
         simulation_count += 1
-        print(f"\nStarting next simulation with genes from {TOP_PERFORMERS_TO_KEEP} longest-living animals (including those that died)\n")
+        print(f"\nStarting next simulation with mutated genes from top {TOP_PERFORMERS_TO_KEEP} performers\n")
         
         # Handle quit event
         for event in pygame.event.get():

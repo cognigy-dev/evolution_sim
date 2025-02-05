@@ -14,18 +14,22 @@ ANIMAL_TYPES = ['herbivore', 'carnivore', 'omnivore']
 PLANT_TYPE = 'plant'
 
 # Animal Properties
-VISION_RADIUS = 4  # How far animals can see
+VISION_RADIUS = {
+    'herbivore': 4,
+    'carnivore': 5,
+    'omnivore': 6
+}
 
 # Death conditions for each type
 HUNGER_DEATH = {
     'herbivore': 7,
-    'carnivore': 40,
-    'omnivore': 8
+    'carnivore': 20,
+    'omnivore': 16
 }
 
 AGE_DEATH = {
     'herbivore': 40,
-    'carnivore': 50,
+    'carnivore': 60,
     'omnivore': 30
 }
 
@@ -33,7 +37,7 @@ AGE_DEATH = {
 REPRODUCTION_COOLDOWNS = {
     'herbivore': 3,
     'carnivore': 6,
-    'omnivore': 10
+    'omnivore': 5
 }
 
 # Update Timing
