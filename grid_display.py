@@ -3,7 +3,26 @@ import sys
 import random
 import math
 from enum import Enum
-from config import *
+from config import *  # Make sure this imports all config parameters first
+import os
+import json
+from datetime import datetime
+
+# Verify all required constants are imported
+required_constants = [
+    'GRID_WIDTH', 'GRID_HEIGHT', 'CELL_SIZE',
+    'INITIAL_PLANTS', 'INITIAL_HERBIVORES', 'INITIAL_CARNIVORES', 'INITIAL_OMNIVORES',
+    'ANIMAL_TYPES', 'PLANT_TYPE',
+    'VISION_RADIUS', 'HUNGER_DEATH', 'AGE_DEATH',
+    'REPRODUCTION_COOLDOWNS',
+    'UPDATE_INTERVAL',
+    'WHITE', 'BLACK', 'GREEN', 'BLUE', 'RED', 'YELLOW',
+    'SIMULATION_STEPS', 'NUMBER_OF_SIMULATIONS', 'TOP_PERFORMERS_TO_KEEP', 'TRAINING_GENERATIONS'
+]
+
+for const in required_constants:
+    if not const in globals():
+        raise NameError(f"Required constant {const} not found in config.py")
 
 # Add this after the imports and before the pygame initialization
 class Action(Enum):
@@ -19,6 +38,8 @@ class Action(Enum):
 
 # Initialize Pygame
 pygame.init()
+pygame.font.init()  # Initialize the font module
+FONT = pygame.font.SysFont('Arial', 24)  # Create a font object
 
 # Calculate window dimensions
 WINDOW_WIDTH = GRID_WIDTH * CELL_SIZE
@@ -29,15 +50,18 @@ screen = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT))
 pygame.display.set_caption("Grid Display")
 
 class Animal:
-    def __init__(self, x, y, animal_type, is_offspring=False):
+    def __init__(self, x, y, animal_type, is_offspring=False, genes=None):
         self.x = x
         self.y = y
         self.animal_type = animal_type
-        self.genes = self.generate_random_genes()
+        self.genes = genes if genes else self.generate_random_genes()
         self.reproduction_cooldown = REPRODUCTION_COOLDOWNS[animal_type] if is_offspring else 0
         self.hunger = 0
         self.age = 0
-        self.stationary_count = 0  # Add counter for staying still
+        self.stationary_count = 0
+        # Add fitness tracking
+        self.survival_time = 0
+        self.offspring_count = 0
     
     def generate_random_genes(self):
         """Generate random genes for all possible vision configurations"""
@@ -147,9 +171,9 @@ class Grid:
             return True
         return False
 
-    def add_animal(self, x, y, animal_type, is_offspring=False):
+    def add_animal(self, x, y, animal_type, is_offspring=False, genes=None):
         if self.is_empty(x, y):
-            animal = Animal(x, y, animal_type, is_offspring)
+            animal = Animal(x, y, animal_type, is_offspring, genes)
             self.grid[y][x] = animal
             if animal_type == 'omnivore':
                 self.omnivores.add((x, y))
@@ -371,10 +395,15 @@ class Grid:
                 animal.feed()
                 print(f"{animal.animal_type} at ({x}, {y}) ate a plant it was standing on")
             
-            # Check if animal dies from hunger or age
-            if animal.hunger >= HUNGER_DEATH or animal.age >= AGE_DEATH:
-                death_cause = "hunger" if animal.hunger >= HUNGER_DEATH else "old age"
-                print(f"{animal.animal_type} at ({x}, {y}) died from {death_cause}")
+            # Check if animal dies from hunger or age using type-specific values
+            death_message = None
+            if animal.hunger >= HUNGER_DEATH[animal.animal_type]:
+                death_message = f"{animal.animal_type.upper()} DEATH at ({x}, {y}): Died from hunger after {animal.hunger} steps without food (limit: {HUNGER_DEATH[animal.animal_type]})"
+            elif animal.age >= AGE_DEATH[animal.animal_type]:
+                death_message = f"{animal.animal_type.upper()} DEATH at ({x}, {y}): Died from old age after living {animal.age} steps (limit: {AGE_DEATH[animal.animal_type]})"
+            
+            if death_message:
+                print(death_message)
                 self.grid[y][x] = None
                 if animal.animal_type == 'herbivore':
                     self.herbivores.remove((x, y))
@@ -391,6 +420,10 @@ class Grid:
                 
             animal = self.grid[y][x]
             
+            # Skip reproduction if too hungry (hunger >= 50% of max)
+            if animal.hunger >= HUNGER_DEATH[animal.animal_type] / 2:
+                continue
+            
             # Decrease reproduction cooldown if it's active
             if animal.reproduction_cooldown > 0:
                 animal.reproduction_cooldown -= 1
@@ -400,12 +433,15 @@ class Grid:
             
             # Check for reproduction (when same type is at distance 1)
             if ((animal.animal_type == 'herbivore' and vision['herbivore'] == 1) or
-                (animal.animal_type == 'omnivore' and vision['omnivore'] == 1) or
-                (animal.animal_type == 'carnivore' and vision['carnivore'] == 1)):
+                (animal.animal_type == 'carnivore' and vision['carnivore'] == 1) or
+                (animal.animal_type == 'omnivore' and vision['omnivore'] == 1)):
                 
                 # Find the other parent
                 other_parent = self.find_parent_nearby(x, y, animal.animal_type)
-                if not other_parent:
+                # Also check if other parent is too hungry
+                if (not other_parent or 
+                    other_parent.reproduction_cooldown > 0 or 
+                    other_parent.hunger >= HUNGER_DEATH[other_parent.animal_type] / 2):
                     continue
                 
                 # Find empty neighboring cells for offspring
@@ -431,6 +467,8 @@ class Grid:
                     print(f"New {animal.animal_type} born at ({offspring_x}, {offspring_y}) with mixed genes")
                     animal.reproduction_cooldown = REPRODUCTION_COOLDOWNS[animal.animal_type]
                     other_parent.reproduction_cooldown = REPRODUCTION_COOLDOWNS[other_parent.animal_type]
+                    animal.offspring_count += 1
+                    other_parent.offspring_count += 1
         
         # Then handle eating
         for x, y in list(self.omnivores):
@@ -441,7 +479,29 @@ class Grid:
             
             # Track if omnivore ate something this turn
             ate_something = False
-            if vision['herbivore'] == 1 or vision['carnivore'] == 1:
+            if vision['herbivore'] == 1:  # Changed to only check for herbivores
+                for dx, dy in [(0, 1), (1, 0), (0, -1), (-1, 0)]:
+                    new_x, new_y = x + dx, y + dy
+                    if self.is_valid_position(new_x, new_y):
+                        target = self.grid[new_y][new_x]
+                        if isinstance(target, Animal) and target.animal_type == 'herbivore':
+                            self.herbivores.remove((new_x, new_y))
+                            self.grid[new_y][new_x] = None
+                            animal.feed()  # Reset hunger when eating
+                            print(f"Omnivore at ({x}, {y}) ate a herbivore at ({new_x}, {new_y})")
+                            ate_something = True
+                            break
+
+        # Then let carnivores eat herbivores and omnivores
+        for x, y in list(self.carnivores):
+            if not self.grid[y][x]:  # Skip if dead
+                continue
+            animal = self.grid[y][x]
+            vision = self.get_vision(x, y)
+            
+            # Track if carnivore ate something this turn
+            ate_something = False
+            if vision['herbivore'] == 1 or vision['omnivore'] == 1:  # Added check for omnivores
                 for dx, dy in [(0, 1), (1, 0), (0, -1), (-1, 0)]:
                     new_x, new_y = x + dx, y + dy
                     if self.is_valid_position(new_x, new_y):
@@ -451,38 +511,16 @@ class Grid:
                                 self.herbivores.remove((new_x, new_y))
                                 self.grid[new_y][new_x] = None
                                 animal.feed()  # Reset hunger when eating
-                                print(f"Omnivore at ({x}, {y}) ate a herbivore at ({new_x}, {new_y})")
+                                print(f"Carnivore at ({x}, {y}) ate a herbivore at ({new_x}, {new_y})")
                                 ate_something = True
                                 break
-                            elif target.animal_type == 'carnivore':
-                                self.carnivores.remove((new_x, new_y))
+                            elif target.animal_type == 'omnivore':  # Added ability to eat omnivores
+                                self.omnivores.remove((new_x, new_y))
                                 self.grid[new_y][new_x] = None
                                 animal.feed()  # Reset hunger when eating
-                                print(f"Omnivore at ({x}, {y}) ate a carnivore at ({new_x}, {new_y})")
+                                print(f"Carnivore at ({x}, {y}) ate an omnivore at ({new_x}, {new_y})")
                                 ate_something = True
                                 break
-
-        # Then let carnivores eat herbivores
-        for x, y in list(self.carnivores):
-            if not self.grid[y][x]:  # Skip if dead
-                continue
-            animal = self.grid[y][x]
-            vision = self.get_vision(x, y)
-            
-            # Track if carnivore ate something this turn
-            ate_something = False
-            if vision['herbivore'] == 1:
-                for dx, dy in [(0, 1), (1, 0), (0, -1), (-1, 0)]:
-                    new_x, new_y = x + dx, y + dy
-                    if self.is_valid_position(new_x, new_y):
-                        target = self.grid[new_y][new_x]
-                        if isinstance(target, Animal) and target.animal_type == 'herbivore':
-                            self.herbivores.remove((new_x, new_y))
-                            self.grid[new_y][new_x] = None
-                            animal.feed()  # Reset hunger when eating
-                            print(f"Carnivore at ({x}, {y}) ate a herbivore at ({new_x}, {new_y})")
-                            ate_something = True
-                            break
         
         # Then proceed with normal movement
         for x, y in all_animals:
@@ -620,58 +658,227 @@ def draw_animals(grid):
         )
         pygame.draw.rect(screen, YELLOW, rect)
 
-# Initialize grid and add initial plants
-grid = Grid(GRID_WIDTH, GRID_HEIGHT)
-
-# Add some random initial plants
-for _ in range(INITIAL_PLANTS):
-    x = random.randint(0, GRID_WIDTH - 1)
-    y = random.randint(0, GRID_HEIGHT - 1)
-    grid.add_plant(x, y)
-
-# Add random animals with specific counts for each type
-animal_counts = {
-    'herbivore': INITIAL_HERBIVORES,
-    'carnivore': INITIAL_CARNIVORES,
-    'omnivore': INITIAL_OMNIVORES
-}
-
-for animal_type, count in animal_counts.items():
-    for _ in range(count):
-        while True:
-            x = random.randint(0, GRID_WIDTH - 1)
-            y = random.randint(0, GRID_HEIGHT - 1)
-            if grid.add_animal(x, y, animal_type):
-                break
-
-# Main game loop
-clock = pygame.time.Clock()
-last_update = pygame.time.get_ticks()
-
-while True:
-    current_time = pygame.time.get_ticks()
+def draw_simulation_counter(generation, simulation, step=None, total_steps=SIMULATION_STEPS):
+    """Draw the current generation, simulation numbers and time progress"""
+    gen_sim_text = f"Generation: {generation + 1}, Simulation: {simulation + 1}"
+    text_surface = FONT.render(gen_sim_text, True, BLACK)
+    screen.blit(text_surface, (10, 10))  # Position in top-left corner
     
-    for event in pygame.event.get():
-        if event.type == pygame.QUIT:
-            pygame.quit()
-            sys.exit()
+    if step is not None:
+        # Add progress information
+        progress_text = f"Step: {step}/{total_steps} ({(step/total_steps*100):.1f}%)"
+        progress_surface = FONT.render(progress_text, True, BLACK)
+        screen.blit(progress_surface, (10, 40))  # Position below generation/simulation counter
+
+def run_simulation(initial_genes=None, visualize=False, generation=0, simulation=0):
+    """Run a single simulation and return the results"""
+    if visualize:
+        # Clear screen and show "Starting new simulation" message
+        screen.fill(WHITE)
+        start_text = f"Starting Generation {generation + 1}, Simulation {simulation + 1}"
+        text_surface = FONT.render(start_text, True, BLACK)
+        text_rect = text_surface.get_rect(center=(WINDOW_WIDTH // 2, WINDOW_HEIGHT // 2))
+        screen.blit(text_surface, text_rect)
+        pygame.display.flip()
+        pygame.time.wait(1000)
     
-    # Update plants and animals every second
-    if current_time - last_update >= UPDATE_INTERVAL:
+    # Create a new grid for this simulation
+    grid = Grid(GRID_WIDTH, GRID_HEIGHT)
+    
+    # Initialize grid with plants and animals
+    for _ in range(INITIAL_PLANTS):
+        x = random.randint(0, GRID_WIDTH - 1)
+        y = random.randint(0, GRID_HEIGHT - 1)
+        grid.add_plant(x, y)
+    
+    animal_counts = {
+        'herbivore': INITIAL_HERBIVORES,
+        'carnivore': INITIAL_CARNIVORES,
+        'omnivore': INITIAL_OMNIVORES
+    }
+    
+    all_animals = []
+    for animal_type, count in animal_counts.items():
+        for i in range(count):
+            while True:
+                x = random.randint(0, GRID_WIDTH - 1)
+                y = random.randint(0, GRID_HEIGHT - 1)
+                # Fix the gene assignment logic
+                genes = None
+                if initial_genes and initial_genes[animal_type]:
+                    # Use modulo to cycle through available genes
+                    gene_index = i % len(initial_genes[animal_type])
+                    genes = initial_genes[animal_type][gene_index]
+                
+                if grid.add_animal(x, y, animal_type, genes=genes):
+                    if isinstance(grid.grid[y][x], Animal):
+                        all_animals.append(grid.grid[y][x])
+                    break
+    
+    # Track maximum survival time for each animal
+    animal_max_survival = {}
+    
+    # Run simulation steps
+    for step in range(SIMULATION_STEPS):
         grid.update_plants()
         grid.update_animals()
-        last_update = current_time
+        
+        # Update survival time for all animals (including those that died)
+        for animal in all_animals:
+            animal.survival_time += 1
+            # Keep track of maximum survival time for each animal
+            animal_max_survival[animal] = max(
+                animal_max_survival.get(animal, 0),
+                animal.survival_time
+            )
+        
+        # Handle visualization
+        if visualize:
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    pygame.quit()
+                    sys.exit()
+            
+            # Clear and redraw everything
+            screen.fill(WHITE)
+            draw_grid()
+            draw_plants(grid)
+            draw_animals(grid)
+            draw_simulation_counter(generation, simulation, step)
+            pygame.display.flip()
+            pygame.time.wait(50)
     
-    # Fill screen with white
-    screen.fill(WHITE)
+    if visualize:
+        # Show completion message
+        screen.fill(WHITE)
+        end_text = f"Generation {generation + 1}, Simulation {simulation + 1} Complete"
+        text_surface = FONT.render(end_text, True, BLACK)
+        text_rect = text_surface.get_rect(center=(WINDOW_WIDTH // 2, WINDOW_HEIGHT // 2))
+        screen.blit(text_surface, text_rect)
+        pygame.display.flip()
+        pygame.time.wait(1000)
+        
+        # Clear screen before next simulation
+        screen.fill(WHITE)
+        pygame.display.flip()
     
-    # Draw everything
-    draw_grid()
-    draw_plants(grid)
-    draw_animals(grid)
+    # Calculate results using maximum survival times
+    results = []
+    for animal in all_animals:
+        results.append((animal, animal_max_survival[animal]))
     
-    # Update the display
-    pygame.display.flip()
+    return results
+
+def save_simulation_results(simulation_count, type_results_dict, best_genes):
+    """Save simulation results and best genes to files"""
+    # Create results directory if it doesn't exist
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    base_dir = f"simulation_results/{timestamp}"
+    os.makedirs(base_dir, exist_ok=True)
     
-    # Control frame rate
-    clock.tick(60) 
+    # Save simulation statistics
+    stats = {}
+    for animal_type, type_results in type_results_dict.items():
+        if type_results:
+            survival_times = [survival for _, survival in type_results]
+            stats[animal_type] = {
+                "avg_survival": sum(survival_times) / len(survival_times),
+                "max_survival": max(survival_times),
+                "total_animals": len(type_results),
+                "top_3_survival_times": sorted(survival_times, reverse=True)[:3]
+            }
+    
+    with open(f"{base_dir}/simulation_{simulation_count}_stats.json", 'w') as f:
+        json.dump(stats, f, indent=4)
+    
+    # Save top 3 genes for each type
+    for animal_type in ANIMAL_TYPES:
+        if best_genes[animal_type]:
+            # Convert genes to serializable format (convert Enum to string)
+            serializable_genes = []
+            for genes in best_genes[animal_type][:3]:  # Save top 3
+                serializable_gene = {
+                    str(key): action.name for key, action in genes.items()
+                }
+                serializable_genes.append(serializable_gene)
+            
+            with open(f"{base_dir}/best_genes_{animal_type}_{simulation_count}.json", 'w') as f:
+                json.dump(serializable_genes, f, indent=4)
+
+def load_genes(filepath):
+    """Load genes from a file and convert back to proper format"""
+    with open(filepath, 'r') as f:
+        serialized_genes = json.load(f)
+    
+    # Convert back to proper format
+    genes = []
+    for serialized_gene in serialized_genes:
+        gene = {}
+        for key_str, action_str in serialized_gene.items():
+            # Convert string tuple to actual tuple
+            key = tuple(map(int, key_str.strip('()').split(', ')))
+            # Convert string to Action enum
+            action = Action[action_str]
+            gene[key] = action
+        genes.append(gene)
+    
+    return genes
+
+# Modify main game loop to use trained genes
+if __name__ == "__main__":
+    print("Starting continuous simulation and gathering best genes...")
+    
+    best_genes = {
+        'herbivore': [],
+        'carnivore': [],
+        'omnivore': []
+    }
+    
+    simulation_count = 0
+    while True:
+        # Run a single simulation with visualization
+        results = run_simulation(
+            initial_genes=best_genes if simulation_count > 0 else None,
+            visualize=True,
+            generation=0,
+            simulation=simulation_count
+        )
+        
+        # Collect results for all types
+        type_results_dict = {}
+        for animal_type in ANIMAL_TYPES:
+            type_results = [(animal, survival_time) for animal, survival_time in results 
+                          if animal.animal_type == animal_type]
+            type_results.sort(key=lambda x: x[1], reverse=True)
+            type_results_dict[animal_type] = type_results
+            
+            if type_results:
+                # Keep genes from animals that lived longest
+                new_best_genes = [animal.genes for animal, survival_time in type_results[:TOP_PERFORMERS_TO_KEEP]]
+                
+                # Combine with existing best genes
+                if best_genes[animal_type]:
+                    combined_genes = best_genes[animal_type] + new_best_genes
+                    best_genes[animal_type] = combined_genes[:TOP_PERFORMERS_TO_KEEP]
+                else:
+                    best_genes[animal_type] = new_best_genes
+                
+                # Print stats
+                avg_survival = sum(survival for _, survival in type_results) / len(type_results)
+                max_survival = max(survival for _, survival in type_results)
+                print(f"\nSimulation {simulation_count} - {animal_type}:")
+                print(f"Avg Survival Time: {avg_survival:.2f}")
+                print(f"Best Survival Time: {max_survival}")
+                print(f"Total animals: {len(type_results)}")
+        
+        # Save simulation results and best genes
+        save_simulation_results(simulation_count, type_results_dict, best_genes)
+        
+        simulation_count += 1
+        print(f"\nStarting next simulation with genes from {TOP_PERFORMERS_TO_KEEP} longest-living animals (including those that died)\n")
+        
+        # Handle quit event
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                sys.exit() 
