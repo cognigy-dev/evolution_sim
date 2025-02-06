@@ -7,6 +7,20 @@ from config import *  # Make sure this imports all config parameters first
 import os
 import json
 from datetime import datetime
+from graphics.ground import Ground
+from graphics.plant import Plant
+try:
+    from graphics.omnivore import Omnivore
+    from graphics.herbivore import Herbivore
+    from graphics.carnivore import Carnivore
+    GRAPHICS_AVAILABLE = True
+except ImportError:
+    print("Warning: Advanced graphics not available, falling back to simple shapes")
+    GRAPHICS_AVAILABLE = False
+
+# Add the project root directory to Python path
+project_root = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(project_root)
 
 # Verify all required constants are imported
 required_constants = [
@@ -631,54 +645,69 @@ class Grid:
                 animal.stationary_count += 1  # Increment if chose not to move
 
 def draw_grid():
-    # Draw vertical lines
-    for x in range(0, WINDOW_WIDTH, CELL_SIZE):
-        pygame.draw.line(screen, BLACK, (x, 0), (x, WINDOW_HEIGHT))
+    # Draw ground first using the Ground class
+    ground = Ground(GRID_WIDTH, GRID_HEIGHT, CELL_SIZE)
+    ground.draw(screen)
     
-    # Draw horizontal lines
+    # Draw grid lines with reduced opacity for a more subtle look
+    grid_surface = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT), pygame.SRCALPHA)
+    for x in range(0, WINDOW_WIDTH, CELL_SIZE):
+        pygame.draw.line(grid_surface, (*BLACK, 40), (x, 0), (x, WINDOW_HEIGHT))
     for y in range(0, WINDOW_HEIGHT, CELL_SIZE):
-        pygame.draw.line(screen, BLACK, (0, y), (WINDOW_WIDTH, y))
+        pygame.draw.line(grid_surface, (*BLACK, 40), (0, y), (WINDOW_WIDTH, y))
+    screen.blit(grid_surface, (0, 0))
 
 def draw_plants(grid):
     for plant_x, plant_y in grid.plants:
-        rect = pygame.Rect(
-            plant_x * CELL_SIZE + 1,  # +1 to not overlap with grid lines
-            plant_y * CELL_SIZE + 1,
-            CELL_SIZE - 2,  # -2 to not overlap with grid lines
-            CELL_SIZE - 2
-        )
-        pygame.draw.rect(screen, GREEN, rect)
+        # Use the Plant class instead of simple rectangles
+        plant = Plant(plant_x * CELL_SIZE, plant_y * CELL_SIZE)
+        plant.draw(screen)
 
 def draw_animals(grid):
-    # Draw omnivores
-    for x, y in grid.omnivores:
-        rect = pygame.Rect(
-            x * CELL_SIZE + 1,
-            y * CELL_SIZE + 1,
-            CELL_SIZE - 2,
-            CELL_SIZE - 2
-        )
-        pygame.draw.rect(screen, BLUE, rect)
-    
-    # Draw carnivores
-    for x, y in grid.carnivores:
-        rect = pygame.Rect(
-            x * CELL_SIZE + 1,
-            y * CELL_SIZE + 1,
-            CELL_SIZE - 2,
-            CELL_SIZE - 2
-        )
-        pygame.draw.rect(screen, RED, rect)
-    
-    # Draw herbivores
-    for x, y in grid.herbivores:
-        rect = pygame.Rect(
-            x * CELL_SIZE + 1,
-            y * CELL_SIZE + 1,
-            CELL_SIZE - 2,
-            CELL_SIZE - 2
-        )
-        pygame.draw.rect(screen, YELLOW, rect)
+    if GRAPHICS_AVAILABLE:
+        # Draw with advanced graphics
+        for x, y in grid.omnivores:
+            if grid.grid[y][x]:
+                omnivore = Omnivore(x * CELL_SIZE, y * CELL_SIZE)
+                omnivore.draw(screen)
+        
+        for x, y in grid.carnivores:
+            if grid.grid[y][x]:
+                carnivore = Carnivore(x * CELL_SIZE, y * CELL_SIZE)
+                carnivore.draw(screen)
+        
+        for x, y in grid.herbivores:
+            if grid.grid[y][x]:
+                herbivore = Herbivore(x * CELL_SIZE, y * CELL_SIZE)
+                herbivore.draw(screen)
+    else:
+        # Fall back to simple rectangles
+        for x, y in grid.omnivores:
+            rect = pygame.Rect(
+                x * CELL_SIZE + 1,
+                y * CELL_SIZE + 1,
+                CELL_SIZE - 2,
+                CELL_SIZE - 2
+            )
+            pygame.draw.rect(screen, BLUE, rect)
+        
+        for x, y in grid.carnivores:
+            rect = pygame.Rect(
+                x * CELL_SIZE + 1,
+                y * CELL_SIZE + 1,
+                CELL_SIZE - 2,
+                CELL_SIZE - 2
+            )
+            pygame.draw.rect(screen, RED, rect)
+        
+        for x, y in grid.herbivores:
+            rect = pygame.Rect(
+                x * CELL_SIZE + 1,
+                y * CELL_SIZE + 1,
+                CELL_SIZE - 2,
+                CELL_SIZE - 2
+            )
+            pygame.draw.rect(screen, YELLOW, rect)
 
 def draw_simulation_counter(generation, simulation, step=None, total_steps=SIMULATION_STEPS):
     """Draw the current generation, simulation numbers and time progress"""

@@ -1,0 +1,68 @@
+{
+    "herbivore": {
+        "avg_fitness": 910.0,
+        "max_fitness": 2062,
+        "total_animals": 250,
+        "top_3_performers": [
+            {
+                "offspring_count": 2,
+                "survival_time": 62,
+                "fitness_score": 2062
+            },
+            {
+                "offspring_count": 2,
+                "survival_time": 62,
+                "fitness_score": 2062
+            },
+            {
+                "offspring_count": 2,
+                "survival_time": 62,
+                "fitness_score": 2062
+            }
+        ]
+    },
+    "carnivore": {
+        "avg_fitness": 795.3333333333334,
+        "max_fitness": 3062,
+        "total_animals": 60,
+        "top_3_performers": [
+            {
+                "offspring_count": 3,
+                "survival_time": 62,
+                "fitness_score": 3062
+            },
+            {
+                "offspring_count": 2,
+                "survival_time": 62,
+                "fitness_score": 2062
+            },
+            {
+                "offspring_count": 2,
+                "survival_time": 62,
+                "fitness_score": 2062
+            }
+        ]
+    },
+    "omnivore": {
+        "avg_fitness": 612.0,
+        "max_fitness": 2062,
+        "total_animals": 60,
+        "top_3_performers": [
+            {
+                "offspring_count": 2,
+                "survival_time": 62,
+                "fitness_score": 2062
+            },
+            {
+                "offspring_count": 2,
+                "survival_time": 62,
+                "fitness_score": 2062
+            },
+            {
+                "offspring_count": 2,
+                "survival_time": 62,
+                "fitness_score": 2062
+            }
+        ]
+    }
+}

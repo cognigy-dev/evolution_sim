@@ -1,0 +1,32 @@
+{
+    "herbivore": {
+        "avg_survival": 22.121052631578948,
+        "max_survival": 40,
+        "total_animals": 570,
+        "top_3_survival_times": [
+            40,
+            40,
+            40
+        ]
+    },
+    "carnivore": {
+        "avg_survival": 42.40972222222222,
+        "max_survival": 60,
+        "total_animals": 144,
+        "top_3_survival_times": [
+            60,
+            60,
+            60
+        ]
+    },
+    "omnivore": {
+        "avg_survival": 27.846153846153847,
+        "max_survival": 30,
+        "total_animals": 91,
+        "top_3_survival_times": [
+            30,
+            30,
+            30
+        ]
+    }
+}
