@@ -63,6 +63,37 @@ WINDOW_HEIGHT = GRID_HEIGHT * CELL_SIZE
 screen = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT))
 pygame.display.set_caption("Grid Display")
 
+# Add at the top of the file after initializing pygame
+CACHED_IMAGES = {
+    'omnivore': None,
+    'carnivore': None,
+    'herbivore': None
+}
+
+# Function to initialize cached images
+def init_cached_images():
+    if GRAPHICS_AVAILABLE:
+        CACHED_IMAGES['omnivore'] = Omnivore(0, 0).image
+        CACHED_IMAGES['carnivore'] = Carnivore(0, 0).image
+        CACHED_IMAGES['herbivore'] = Herbivore(0, 0).image
+
+# Call this after pygame initialization
+init_cached_images()
+
+# Create static grid surface once
+GRID_SURFACE = None
+
+def init_grid_surface():
+    global GRID_SURFACE
+    GRID_SURFACE = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT), pygame.SRCALPHA)
+    for x in range(0, WINDOW_WIDTH, CELL_SIZE):
+        pygame.draw.line(GRID_SURFACE, (*BLACK, 40), (x, 0), (x, WINDOW_HEIGHT))
+    for y in range(0, WINDOW_HEIGHT, CELL_SIZE):
+        pygame.draw.line(GRID_SURFACE, (*BLACK, 40), (0, y), (WINDOW_WIDTH, y))
+
+# Call this after pygame initialization
+init_grid_surface()
+
 class Animal:
     def __init__(self, x, y, animal_type, is_offspring=False, genes=None):
         self.x = x
@@ -649,13 +680,8 @@ def draw_grid():
     ground = Ground(GRID_WIDTH, GRID_HEIGHT, CELL_SIZE)
     ground.draw(screen)
     
-    # Draw grid lines with reduced opacity for a more subtle look
-    grid_surface = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT), pygame.SRCALPHA)
-    for x in range(0, WINDOW_WIDTH, CELL_SIZE):
-        pygame.draw.line(grid_surface, (*BLACK, 40), (x, 0), (x, WINDOW_HEIGHT))
-    for y in range(0, WINDOW_HEIGHT, CELL_SIZE):
-        pygame.draw.line(grid_surface, (*BLACK, 40), (0, y), (WINDOW_WIDTH, y))
-    screen.blit(grid_surface, (0, 0))
+    # Just blit the pre-rendered grid
+    screen.blit(GRID_SURFACE, (0, 0))
 
 def draw_plants(grid):
     for plant_x, plant_y in grid.plants:
@@ -668,18 +694,21 @@ def draw_animals(grid):
         # Draw with advanced graphics
         for x, y in grid.omnivores:
             if grid.grid[y][x]:
-                omnivore = Omnivore(x * CELL_SIZE, y * CELL_SIZE)
-                omnivore.draw(screen)
+                screen_x = x * CELL_SIZE + (CELL_SIZE - 30) // 2
+                screen_y = y * CELL_SIZE + (CELL_SIZE - 30) // 2
+                screen.blit(CACHED_IMAGES['omnivore'], (screen_x, screen_y))
         
         for x, y in grid.carnivores:
             if grid.grid[y][x]:
-                carnivore = Carnivore(x * CELL_SIZE, y * CELL_SIZE)
-                carnivore.draw(screen)
+                screen_x = x * CELL_SIZE + (CELL_SIZE - 30) // 2
+                screen_y = y * CELL_SIZE + (CELL_SIZE - 30) // 2
+                screen.blit(CACHED_IMAGES['carnivore'], (screen_x, screen_y))
         
         for x, y in grid.herbivores:
             if grid.grid[y][x]:
-                herbivore = Herbivore(x * CELL_SIZE, y * CELL_SIZE)
-                herbivore.draw(screen)
+                screen_x = x * CELL_SIZE + (CELL_SIZE - 30) // 2
+                screen_y = y * CELL_SIZE + (CELL_SIZE - 30) // 2
+                screen.blit(CACHED_IMAGES['herbivore'], (screen_x, screen_y))
     else:
         # Fall back to simple rectangles
         for x, y in grid.omnivores:
@@ -883,6 +912,8 @@ if __name__ == "__main__":
     }
     
     simulation_count = 0
+    FRAME_SKIP = 2  # Only draw every 2nd frame
+    frame_count = 0
     while True:
         # Run a single simulation with visualization
         results = run_simulation(
@@ -970,4 +1001,9 @@ if __name__ == "__main__":
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit()
-                sys.exit() 
+                sys.exit()
+        
+        frame_count += 1
+        if frame_count % FRAME_SKIP == 0:
+            # Draw code here
+            pygame.display.flip() 
