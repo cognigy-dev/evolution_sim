@@ -107,6 +107,20 @@ class Animal:
         # Add fitness tracking
         self.survival_time = 0
         self.offspring_count = 0
+        self.size = 45
+        
+        # Load the appropriate image based on animal type
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        image_path = os.path.join(script_dir, 'graphics', 'assets', f'{animal_type}.png')
+        
+        try:
+            self.base_image = pygame.image.load(image_path).convert_alpha()
+            self.base_image = pygame.transform.scale(self.base_image, (self.size, self.size))
+            self.image = self.base_image
+            self.has_image = True
+        except Exception as e:
+            print(f"Failed to load {animal_type} image: {e}")
+            self.has_image = False
     
     def generate_random_genes(self):
         """Generate random genes for all possible vision configurations"""
@@ -187,6 +201,12 @@ class Animal:
                 mixed_genes[key] = random.choice(possible_actions)
         
         return mixed_genes
+
+    def draw(self, surface):
+        if self.has_image:
+            screen_x = self.x * CELL_SIZE - (self.size - CELL_SIZE) // 2
+            screen_y = self.y * CELL_SIZE - (self.size - CELL_SIZE) // 2
+            surface.blit(self.image, (screen_x, screen_y))
 
 class Grid:
     def __init__(self, width, height):
@@ -690,53 +710,18 @@ def draw_plants(grid):
         plant.draw(screen)
 
 def draw_animals(grid):
-    if GRAPHICS_AVAILABLE:
-        # Draw with advanced graphics
-        for x, y in grid.omnivores:
-            if grid.grid[y][x]:
-                screen_x = x * CELL_SIZE + (CELL_SIZE - 30) // 2
-                screen_y = y * CELL_SIZE + (CELL_SIZE - 30) // 2
-                screen.blit(CACHED_IMAGES['omnivore'], (screen_x, screen_y))
-        
-        for x, y in grid.carnivores:
-            if grid.grid[y][x]:
-                screen_x = x * CELL_SIZE + (CELL_SIZE - 30) // 2
-                screen_y = y * CELL_SIZE + (CELL_SIZE - 30) // 2
-                screen.blit(CACHED_IMAGES['carnivore'], (screen_x, screen_y))
-        
-        for x, y in grid.herbivores:
-            if grid.grid[y][x]:
-                screen_x = x * CELL_SIZE + (CELL_SIZE - 30) // 2
-                screen_y = y * CELL_SIZE + (CELL_SIZE - 30) // 2
-                screen.blit(CACHED_IMAGES['herbivore'], (screen_x, screen_y))
-    else:
-        # Fall back to simple rectangles
-        for x, y in grid.omnivores:
-            rect = pygame.Rect(
-                x * CELL_SIZE + 1,
-                y * CELL_SIZE + 1,
-                CELL_SIZE - 2,
-                CELL_SIZE - 2
-            )
-            pygame.draw.rect(screen, BLUE, rect)
-        
-        for x, y in grid.carnivores:
-            rect = pygame.Rect(
-                x * CELL_SIZE + 1,
-                y * CELL_SIZE + 1,
-                CELL_SIZE - 2,
-                CELL_SIZE - 2
-            )
-            pygame.draw.rect(screen, RED, rect)
-        
-        for x, y in grid.herbivores:
-            rect = pygame.Rect(
-                x * CELL_SIZE + 1,
-                y * CELL_SIZE + 1,
-                CELL_SIZE - 2,
-                CELL_SIZE - 2
-            )
-            pygame.draw.rect(screen, YELLOW, rect)
+    # Draw all animals using their draw method
+    for x, y in grid.omnivores:
+        if grid.grid[y][x]:
+            grid.grid[y][x].draw(screen)
+    
+    for x, y in grid.carnivores:
+        if grid.grid[y][x]:
+            grid.grid[y][x].draw(screen)
+    
+    for x, y in grid.herbivores:
+        if grid.grid[y][x]:
+            grid.grid[y][x].draw(screen)
 
 def draw_simulation_counter(generation, simulation, step=None, total_steps=SIMULATION_STEPS):
     """Draw the current generation, simulation numbers and time progress"""

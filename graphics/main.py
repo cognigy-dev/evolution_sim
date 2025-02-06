@@ -5,6 +5,7 @@ from herbivore import Herbivore
 from plant import Plant
 from carnivore import Carnivore
 from ground import Ground
+from config import *
 
 # Initialize Pygame
 pygame.init()
@@ -59,6 +60,7 @@ for _ in range(3):  # Start with 3 herbivores
     grid_x = random.randint(0, GRID_WIDTH - 1)
     grid_y = random.randint(0, GRID_HEIGHT - 1)
     x, y = grid_to_screen(grid_x, grid_y)
+    print(f"Creating herbivore at ({x}, {y})")
     herbivores.append(Herbivore(x, y))
 
 # Add carnivores at specific positions
@@ -138,42 +140,68 @@ ground = Ground(GRID_WIDTH, GRID_HEIGHT, SQUARE_SIZE)
 running = True
 clock = pygame.time.Clock()
 
+def draw_animals(grid):
+    if GRAPHICS_AVAILABLE:
+        # Draw with advanced graphics
+        for x, y in grid.omnivores:
+            if grid.grid[y][x]:
+                screen_x = x * CELL_SIZE - (45 - CELL_SIZE) // 2  # Center 45px sprite on 30px grid
+                screen_y = y * CELL_SIZE - (45 - CELL_SIZE) // 2
+                screen.blit(CACHED_IMAGES['omnivore'], (screen_x, screen_y))
+        
+        for x, y in grid.carnivores:
+            if grid.grid[y][x]:
+                screen_x = x * CELL_SIZE - (45 - CELL_SIZE) // 2
+                screen_y = y * CELL_SIZE - (45 - CELL_SIZE) // 2
+                screen.blit(CACHED_IMAGES['carnivore'], (screen_x, screen_y))
+        
+        for x, y in grid.herbivores:
+            if grid.grid[y][x]:
+                screen_x = x * CELL_SIZE - (45 - CELL_SIZE) // 2
+                screen_y = y * CELL_SIZE - (45 - CELL_SIZE) // 2
+                screen.blit(CACHED_IMAGES['herbivore'], (screen_x, screen_y))
+
 while running:
-    # Handle events
+    dt = clock.tick(60) / 1000.0  # Delta time in seconds
+    
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
         camera.handle_input(event)
 
-    # Update
+    # Update plants
     new_plants = []
-    for plant in plants[:]:  # Create a copy of the list to iterate over
+    for plant in plants[:]:
         plant_child = plant.update()
         if plant_child:
             new_plants.append(plant_child)
     plants.extend(new_plants)
     
-    # Optional: Limit total number of plants
-    max_plants = 200
-    if len(plants) > max_plants:
-        plants = plants[:max_plants]
+    # Random movement for animals
+    def move_animal(animal):
+        if random.random() < 0.05:  # 5% chance to move each frame
+            # Random movement left or right
+            move_x = random.choice([-1, 1]) * SQUARE_SIZE
+            new_x = animal.x + move_x
+            
+            # Keep within grid bounds
+            if 0 <= new_x < WINDOW_WIDTH - animal.size:
+                animal.x = new_x
+                animal.update()  # This will trigger the image flip
 
-    # Update animals
-    omnivore1.update()
-    omnivore2.update()
-    carnivore1.update()
-    carnivore2.update()
+    # Update all animals with movement
+    move_animal(omnivore1)
+    move_animal(omnivore2)
+    move_animal(carnivore1)
+    move_animal(carnivore2)
     for herbivore in herbivores:
-        herbivore.update()
+        move_animal(herbivore)
 
     # Draw
-    # Create a surface for the game world
     world_surface = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT))
-    
-    # Draw ground
     ground.draw(world_surface)
     
-    # Draw all objects on world surface
+    # Draw all objects
     for plant in plants:
         plant.draw(world_surface)
     for herbivore in herbivores:
@@ -185,11 +213,6 @@ while running:
     
     # Apply camera transform and draw to screen
     screen.blit(camera.apply(world_surface), (0, 0))
-    
-    # Update display
     pygame.display.flip()
-    
-    # Control frame rate
-    clock.tick(60)
 
 pygame.quit() 
