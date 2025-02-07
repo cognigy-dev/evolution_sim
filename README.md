@@ -18,7 +18,7 @@ A gene is description of how to react if you:
 - The closest omnivore at a distance of e.g. 2
 - No herbivore in the vision radius
 
-These genes can be controlled in the congif.py
+These genes can be controlled in the config.py
 
 With a vision radius of 4 an animal has therefore 5*5*5 genes
 
